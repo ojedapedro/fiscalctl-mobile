@@ -1,0 +1,5 @@
+{
+  "name": "FiscalCtl Mobile",
+  "description": "A real-time financial dashboard for executive boards to monitor taxes, expenses, and audit statuses.",
+  "requestFramePermissions": []
+}
