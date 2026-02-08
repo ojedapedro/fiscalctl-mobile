@@ -11,6 +11,8 @@ export interface KPI {
   subtext?: string;
   status: Status; // Used to determine color
   badge?: string;
+  trend?: 'up' | 'down' | 'neutral';
+  trendValue?: string;
 }
 
 export interface AuditLogEntry {
@@ -32,4 +34,18 @@ export interface StatusDistribution {
   name: string;
   value: number;
   color: string;
+}
+
+export interface TaxCategory {
+  name: string;
+  value: number;
+  color: string;
+  code: string;
+}
+
+export interface ParafiscalMetric {
+  month: string;
+  sso: number; // Seguro Social
+  faov: number; // Vivienda
+  inces: number; // Capacitacion/Otros
 }
