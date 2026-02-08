@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, CheckCircle2, AlertCircle, Clock, Wifi, Zap, FileText, ArrowRight, TrendingUp, TrendingDown, DollarSign, Building, Users } from 'lucide-react';
+import { Download, CheckCircle2, AlertCircle, Clock, Wifi, Zap, FileText, ArrowRight, TrendingUp, TrendingDown, DollarSign, Building, Users, WifiOff, Loader2 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, Legend, CartesianGrid } from 'recharts';
 import { KPIS, RECENT_LOGS, DISTRIBUTION_DATA, EXPENSE_DATA, TAX_DATA, PARAFISCAL_DATA } from '../constants';
 import { Status, AuditLogEntry, KPI } from '../types';
+import { wsService } from '../services/WebSocketService';
 
 // Componente para animar los cambios en los valores
 const AnimatedValue: React.FC<{ value: string | number }> = ({ value }) => {
@@ -104,7 +105,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 const Dashboard: React.FC = () => {
   const [kpis, setKpis] = useState<KPI[]>(KPIS);
   const [logs, setLogs] = useState<AuditLogEntry[]>(RECENT_LOGS);
-  const [isLive, setIsLive] = useState(true);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('disconnected');
 
   // Helper for status styles in Logs
   const getLogStatusStyle = (status: Status) => {
@@ -120,39 +121,73 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // Simulate WebSocket Real-time Updates
+  // WebSocket Integration
   useEffect(() => {
-    if (!isLive) return;
+    // 1. Conectar al WebSocket
+    wsService.connect();
 
-    const interval = setInterval(() => {
-      // 1. Randomly update "Total Impuestos"
+    // 2. Definir manejadores de eventos
+    const handleStatusChange = (status: 'connected' | 'disconnected' | 'reconnecting') => {
+      setConnectionStatus(status);
+    };
+
+    const handleTaxUpdate = (data: { delta: number }) => {
       setKpis(current => current.map(k => {
-        if (k.id === '1') {
-          const numericValue = parseInt(k.value.toString().replace('$', '').replace(',', ''));
-          const newValue = numericValue + Math.floor(Math.random() * 50) - 10; 
-          return { ...k, value: `$${newValue.toLocaleString()}` };
+        if (k.id === '1') { // ID for "Total Impuestos"
+          const currentVal = parseInt(k.value.toString().replace('$', '').replace(',', ''));
+          const newVal = currentVal + data.delta;
+          return { ...k, value: `$${newVal.toLocaleString()}` };
         }
         return k;
       }));
+    };
 
-      // 2. Add log entry
-      if (Math.random() > 0.85) {
-        const now = new Date();
-        const categories = ['Impuestos', 'Parafiscales', 'Nómina', 'Proveedores'];
-        const newLog: AuditLogEntry = {
-          id: `log-${Date.now()}`,
-          title: `Pago #${Math.floor(Math.random() * 9000) + 1000}`,
-          category: categories[Math.floor(Math.random() * categories.length)],
-          amount: Math.floor(Math.random() * 2000) + 100,
-          date: `Hoy, ${now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`,
-          status: Math.random() > 0.4 ? Status.APPROVED : Status.PENDING
-        };
-        setLogs(prev => [newLog, ...prev].slice(0, 6)); 
-      }
-    }, 4000);
+    const handleNewLog = (log: AuditLogEntry) => {
+      setLogs(prev => [log, ...prev].slice(0, 7)); // Mantener los últimos 7
+    };
 
-    return () => clearInterval(interval);
-  }, [isLive]);
+    // 3. Suscribirse
+    wsService.on('status_change', handleStatusChange);
+    wsService.on('tax_update', handleTaxUpdate);
+    wsService.on('new_log', handleNewLog);
+
+    // 4. Limpieza al desmontar
+    return () => {
+      wsService.off('status_change', handleStatusChange);
+      wsService.off('tax_update', handleTaxUpdate);
+      wsService.off('new_log', handleNewLog);
+      wsService.disconnect();
+    };
+  }, []);
+
+  const getStatusBadge = () => {
+    switch(connectionStatus) {
+      case 'connected':
+        return (
+          <span className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full transition-colors duration-500">
+             <span className="relative flex h-1.5 w-1.5">
+               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+               <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+             </span>
+             <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider">Conectado</span>
+          </span>
+        );
+      case 'reconnecting':
+        return (
+          <span className="flex items-center gap-1.5 px-2 py-0.5 bg-yellow-500/10 border border-yellow-500/20 rounded-full transition-colors duration-500">
+             <Loader2 size={10} className="animate-spin text-yellow-500"/>
+             <span className="text-[9px] font-bold text-yellow-400 uppercase tracking-wider">Reconectando...</span>
+          </span>
+        );
+      default:
+        return (
+          <span className="flex items-center gap-1.5 px-2 py-0.5 bg-red-500/10 border border-red-500/20 rounded-full transition-colors duration-500">
+             <WifiOff size={10} className="text-red-500"/>
+             <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider">Desconectado</span>
+          </span>
+        );
+    }
+  };
 
   return (
     <div className="flex-1 bg-background overflow-y-auto h-screen p-4 pb-20 lg:p-8">
@@ -161,29 +196,15 @@ const Dashboard: React.FC = () => {
         <div>
           <div className="flex items-center gap-3">
              <h1 className="text-2xl font-bold text-white tracking-tight">Tablero Financiero</h1>
-             {isLive && (
-               <span className="flex items-center gap-1.5 px-2 py-0.5 bg-red-500/10 border border-red-500/20 rounded-full">
-                  <span className="relative flex h-1.5 w-1.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span>
-                  </span>
-                  <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider">En Vivo</span>
-               </span>
-             )}
+             {getStatusBadge()}
           </div>
-          <p className="text-gray-400 text-xs mt-1">Visión consolidada de Impuestos, Parafiscales y Gastos.</p>
+          <p className="text-gray-400 text-xs mt-1">Sincronización en tiempo real vía WSS Secure Protocol.</p>
         </div>
         <div className="flex items-center gap-3">
              <div className="hidden md:flex flex-col items-end mr-2">
                 <span className="text-xs text-gray-500">Última act.</span>
                 <span className="text-xs text-white font-mono">{new Date().toLocaleTimeString()}</span>
              </div>
-            <button 
-              onClick={() => setIsLive(!isLive)}
-              className={`p-2 rounded-lg transition-colors ${isLive ? 'bg-surface text-emerald-400 border border-emerald-500/30' : 'bg-surface text-gray-400 border border-gray-700'}`}
-            >
-              <Zap size={18} className={isLive ? 'fill-emerald-400' : ''} />
-            </button>
             <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 py-2 rounded-lg transition-all text-sm shadow-lg shadow-blue-600/20 active:scale-95">
               <Download size={16} />
               <span>Reporte</span>
@@ -339,7 +360,7 @@ const Dashboard: React.FC = () => {
             {logs.map((log, index) => {
               const style = getLogStatusStyle(log.status);
               const StatusIcon = style.icon;
-              const isNew = index === 0 && log.date.includes('Hoy');
+              const isNew = index === 0 && log.date.includes('Hoy') && connectionStatus === 'connected';
 
               return (
                 <div 
